@@ -200,7 +200,7 @@ class Day(object):
             raise Exception("Value cannot be set on Day; the key is not a string and the value is not a Configuration")
         elif not isinstance(key, str):
             raise Exception("Value cannot be set on Day; the key is not a string")
-        elif not isinstance(value, File):
+        elif not isinstance(value, Configuration):
             raise Exception("Value cannot be set on Day; the value is not a Configuration")
         self.configurations[key] = value
 

@@ -53,6 +53,7 @@ def main():
     with open(parameters.target, "w") as json_file:
         json.dump(directory, json_file)
 
+
 # Run the following if this script was called directly
 if __name__ == "__main__":
-    main() 
+    main()

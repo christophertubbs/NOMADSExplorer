@@ -11,14 +11,25 @@ from datetime import datetime
 import requests
 from bs4 import BeautifulSoup
 
+import NOMADSExplorer.explore.directory as directory
 
-_NOMADS_ADDRESS = os.environ.get("NOMADS_ADDRESS", "https://nomads.ncep.noaa.gov/pub/data/nccf/com/nwm/prod/")
+
+_NOMADS_ADDRESS = os.environ.get(
+    "NOMADS_ADDRESS",
+    "https://nomads.ncep.noaa.gov/pub/data/nccf/com/nwm/prod/"
+)
 """(:class:`str`) The address used to connect to a NOMADS-like structure"""
 
 _DAY_FORMAT = "%Y%m%d"
 
 
 def get_int_from_word(word: str) -> [None, int]:
+    """
+    Attempt to pull a combined integer out of a word
+
+    :param word: The word to search through
+    :return: An integer if the word contains numbers, None otherwise
+    """
     individual_numbers = [character for character in word if character in string.digits]
 
     if len(individual_numbers) == 0:
@@ -28,6 +39,20 @@ def get_int_from_word(word: str) -> [None, int]:
 
 
 def extract_file_attributes(filename: str) -> dict:
+    """
+    Discover NWM attributes by looking through the file name
+
+    Describes:
+    * reference: The hour of the day in zulu time for when the forecast begins
+    * configuration: The forecast configuration for the NWM, like 'short_range',
+    * model_type: What the model was forecasting, like 'channel_rt'
+    * member: The numerical identifier for the ensemble member IF the forecast was an ensemble
+    * step: The relative step of the forecast values into the overall forecast (1 hour in, 2 hours in, etc)
+    * area: Over where the forecast occured, like 'conus'
+
+    :param filename: The name of the file to search
+    :return: A dictionary containing values describing a NWM file's attributes
+    """
     attributes = {
         "reference": None,
         "configuration": None,
@@ -65,70 +90,107 @@ def extract_file_attributes(filename: str) -> dict:
     return attributes
 
 
-def form_configuration(address: str, link) -> dict:
+def form_configuration(address: str, link) -> directory.Configuration:
+    """
+    Form a Configuration object based on a parsed link
+
+    :param address: The address for the page that contained this link
+    :param link: The discovered link
+    :return: A configuration object that may contain individual forecasts
+    """
     member = get_int_from_word(link.text)
     if member is None:
         configuration = link.text
     else:
         configuration = link.text.replace("_mem" + str(member), "")
 
-    return {
-        "link": os.path.join(address, link["href"]),
-        "type": configuration.strip("/"),
-        "member": member,
-        "files": dict()
-    }
+    return directory.Configuration(
+        configuration_type=configuration.strip("/"),
+        address=os.path.join(address, link['href']),
+    )
 
 
-def form_configuration_file(address: str, link) -> dict:
-    configuration_file = {
-        "name": link.text,
-        "link": os.path.join(address, link["href"])
-    }
+def form_configuration_file(address: str, link) -> directory.File:
+    """
+    Creates metadata for files that belong to a configuration
+
+    :param address: The address of the configuration
+    :param link: The parsed link to the file
+    :return: An object containing the metadata for the discovered file
+    """
     attributes = extract_file_attributes(link.text)
-    configuration_file.update(attributes)
+    configuration_file = directory.File(
+        name=link.text,
+        address=os.path.join(address, link['href']),
+        reference=attributes['reference'],
+        configuration=attributes['configuration'],
+        model_type=attributes['model_type'],
+        step=attributes['step'],
+        area=attributes['area'],
+        member=attributes.get("member")
+    )
     return configuration_file
 
 
-# TODO: Return a directory object instead of a dictionary
-def get_directory(url: str = None) -> dict:
+def get_directory(url: str = None, verbose: bool = False) -> directory.Directory:
     if url is None:
         url = _NOMADS_ADDRESS
 
     with requests.get(url) as response:
+        if response.status_code >= 400:
+            raise Exception("The web service hosting NWM data could not be reached. ({})".format(response.status_code))
+
+        if verbose:
+            print("Getting information about the latest forecasts")
+
         web_listing = BeautifulSoup(response.text, features="html.parser")
 
-    links = {
-        datetime.strptime(link.text[4:-1], _DAY_FORMAT): {
-            "name": link.text.strip("/"),
-            "date": datetime.strptime(link.text[4:-1], _DAY_FORMAT),
-            "link": os.path.join(url, link["href"]),
-            "configurations": dict()
-        }
-        for link in web_listing.find_all("a")
-        if link.text.startswith("nwm")
-    }
+        if verbose:
+            print("Information about the latest forecasts were found")
 
-    for link_key in links:  # type: str
-        address = links[link_key]["link"]
+    directory_contents = directory.Directory(url)
 
-        with requests.get(address) as response:
+    for link in web_listing.find_all("a"):
+        if link.text.startswith("nwm"):
+            date = datetime.strptime(link.text[4:-1], _DAY_FORMAT)
+            directory_contents[date] = directory.Day(
+                date=date,
+                name=link.text.strip("/"),
+                address=os.path.join(url, link['href'])
+            )
+
+    if verbose:
+        print("{} forecast days were found".format(len(directory_contents)))
+
+    # Change this to be multiprocessed
+    for date, day in directory_contents.days.items():
+        with requests.get(day.address) as response:
             web_listing = BeautifulSoup(response.text, features="html.parser")
 
-        links[link_key]["configurations"] = {
-            configuration_entry.text.strip("/"): form_configuration(address, configuration_entry)
-            for configuration_entry in web_listing.find_all("a")
-            if configuration_entry.text != 'Parent Directory'
-        }
+        # Multiprocess or overkill?
+        for configuration_entry in web_listing.find_all("a"):
+            if configuration_entry.text == 'Parent Directory':
+                continue
 
-        for configuration in links[link_key]["configurations"].values():  # type: dict
-            with requests.get(configuration["link"]) as response:
+            day[configuration_entry.text.strip("/")] = form_configuration(
+                day.address,
+                configuration_entry
+            )
+
+        for configuration_name, configuration in day.configurations.items():  # type: str, directory.Configuration
+            with requests.get(configuration.address) as response:
                 web_listing = BeautifulSoup(response.text, features="html.parser")
 
-            configuration["files"] = {
-                file_link.text: form_configuration_file(configuration["link"], file_link)
-                for file_link in web_listing.find_all("a")
-                if file_link.text.endswith(".nc")
-            }
+            for file_link in web_listing.find_all("a"):
+                if file_link.text.endswith(".nc"):
+                    configuration[file_link.text] = form_configuration_file(
+                        configuration.address,
+                        file_link
+                    )
 
-    return links
+    return directory_contents
+
+
+if __name__ == "__main__":
+    directory = get_directory()
+    print(directory)
