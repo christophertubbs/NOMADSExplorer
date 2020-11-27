@@ -5,7 +5,7 @@ Put module documentation here
 
 import sys
 
-import explore.discovery as discovery
+import NOMADSExplorer.explore.discovery as discovery
 
 
 class Nomad(object):

@@ -3,7 +3,7 @@ from setuptools import setup, find_packages
 setup(
     name='NOMADSExplorer',
     version='0.1',
-    packages=find_packages(include=['NOMADSExplorer', 'NOMADSExplorer.*', 'explore', 'explore.*']),
+    packages=find_packages(include=['NOMADSExplorer', 'NOMADSExplorer.*']),
     url='https://github.com/christophertubbs/NOMADSExplorer',
     license='GPL 3.0',
     author='Christopher Tubbs',

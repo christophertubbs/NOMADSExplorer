@@ -7,8 +7,8 @@ import json
 
 from argparse import ArgumentParser
 
-import explore.web as web
-import explore.local as local
+import NOMADSExplorer.explore.web as web
+import NOMADSExplorer.explore.local as local
 
 EXPLORERS = {
     "local": local,
