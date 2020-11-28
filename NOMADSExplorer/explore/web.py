@@ -11,7 +11,7 @@ from datetime import datetime
 import requests
 from bs4 import BeautifulSoup
 
-import NOMADSExplorer.explore.directory as directory
+import NOMADSExplorer.explore.catalog as directory
 
 
 _NOMADS_ADDRESS = os.environ.get(
@@ -132,7 +132,7 @@ def form_configuration_file(address: str, link) -> directory.File:
     return configuration_file
 
 
-def get_directory(url: str = None, verbose: bool = False) -> directory.Directory:
+def get_directory(url: str = None, verbose: bool = False) -> directory.Catalog:
     if url is None:
         url = _NOMADS_ADDRESS
 
@@ -148,7 +148,7 @@ def get_directory(url: str = None, verbose: bool = False) -> directory.Directory
         if verbose:
             print("Information about the latest forecasts were found")
 
-    directory_contents = directory.Directory(url)
+    directory_contents = directory.Catalog(url)
 
     for link in web_listing.find_all("a"):
         if link.text.startswith("nwm"):

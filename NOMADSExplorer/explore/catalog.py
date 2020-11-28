@@ -56,6 +56,7 @@ class Configuration(object):
         self.type: str = configuration_type
         self.member: typing.Union[None, int] = member
         self.files: typing.Dict[str, File] = dict()
+        self.key_iterator = None
 
     def add_file(self, file: File):
         self.files[file.name] = file
@@ -110,6 +111,18 @@ class Configuration(object):
             raise Exception("Value cannot be set on configuration; the value is not a File")
         self.files[key] = value
 
+    def __iter__(self):
+        self.key_iterator = iter(self.files)
+        return self
+
+    def __next__(self) -> (str, File):
+        if self.key_iterator is None:
+            self.key_iterator = iter(self.files)
+
+        # This will eventually raise a StopIteration, but we want that
+        next_key = next(self.key_iterator)
+        return next_key, self.files[next_key]
+
     def __len__(self) -> int:
         return len(self.files)
 
@@ -132,6 +145,7 @@ class Day(object):
         self.name: str = name
         self.date: datetime = date
         self.configurations: typing.Dict[str, Configuration] = dict()
+        self.key_iterator = None
 
     def add_configuration(self, configuration: Configuration):
         self.configurations[configuration.type] = configuration
@@ -190,6 +204,18 @@ class Day(object):
 
         return total
 
+    def __iter__(self):
+        self.key_iterator = iter(self.configurations)
+        return self
+
+    def __next__(self):
+        if self.key_iterator is None:
+            self.key_iterator = iter(self.configurations)
+
+        # This will eventually raise a StopIteration, but we want it to
+        next_key = next(self.key_iterator)
+        return next_key, self.configurations[next_key]
+
     def __getitem__(self, item: str) -> [None, Configuration]:
         if not isinstance(item, str):
             raise Exception("The key for a configuration must be a string")
@@ -214,10 +240,11 @@ class Day(object):
         return self.__str__()
 
 
-class Directory(object):
+class Catalog(object):
     def __init__(self, address: str):
         self.address: str = address
         self.days: typing.Dict[datetime, Day] = dict()
+        self.key_iterator = None
 
     def add_day(self, day: Day):
         self.days[day.date] = day
@@ -248,14 +275,14 @@ class Directory(object):
         ])
 
     def select_days(self, boolean_function: typing.Callable):
-        new_directory = Directory(self.address)
+        new_directory = Catalog(self.address)
         for day in self.days.values():
             if boolean_function(day):
                 new_directory.add_day(day)
         return new_directory
 
     def select_files(self, boolean_function: typing.Callable):
-        new_directory = Directory(self.address)
+        new_directory = Catalog(self.address)
         for day in self.days.values():
             new_day = day.select_files(boolean_function)
             if len(new_day) > 0:
@@ -263,7 +290,7 @@ class Directory(object):
         return new_directory
 
     def select_configurations(self, boolean_function: typing.Callable):
-        new_directory = Directory(self.address)
+        new_directory = Catalog(self.address)
         for day in self.days.values():
             new_day = day.select_configurations(boolean_function)
             if len(new_day) > 0:
@@ -286,6 +313,18 @@ class Directory(object):
 
     def __len__(self):
         return len(self.days)
+
+    def __iter__(self):
+        self.key_iterator = iter(self.days)
+        return self
+
+    def __next__(self) -> (datetime, Day):
+        if self.key_iterator is None:
+            self.key_iterator = iter(self.days)
+
+        # This will eventually raise a StopIteration, but we want it to
+        next_key = next(self.key_iterator)
+        return next_key, self.days[next_key]
 
     def __getitem__(self, key: datetime):
         if not isinstance(key, datetime):

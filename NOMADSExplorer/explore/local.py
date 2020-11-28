@@ -3,10 +3,10 @@
 Put module documentation here
 """
 
-import NOMADSExplorer.explore.directory as directory
+import NOMADSExplorer.explore.catalog as directory
 
 
-def get_directory(url: str, verbose=False) -> directory.Directory:
-    directory_contents = directory.Directory(url)
+def get_directory(url: str, verbose=False) -> directory.Catalog:
+    directory_contents = directory.Catalog(url)
 
     return directory_contents
