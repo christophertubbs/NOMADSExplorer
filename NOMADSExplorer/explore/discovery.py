@@ -7,6 +7,7 @@ import json
 
 from argparse import ArgumentParser
 
+import NOMADSExplorer.explore.catalog as catalog
 import NOMADSExplorer.explore.web as web
 import NOMADSExplorer.explore.local as local
 
@@ -16,8 +17,8 @@ EXPLORERS = {
 }
 
 
-def discover(explorer: str = "remote", url: str = None) -> dict:
-    return EXPLORERS.get(explorer, web).get_directory(url)
+def discover(explorer: str = "remote", url: str = None) -> catalog.Catalog:
+    return EXPLORERS.get(explorer, web).get_catalog(url)
 
 
 def create_commandline_parser() -> ArgumentParser:

@@ -1,6 +1,6 @@
 #!/bin/env python
 """
-Put module documentation here
+A very basic class to fetch and provide access to a NOMADS-like National Water Model data repository
 """
 
 import sys
@@ -9,6 +9,9 @@ import NOMADSExplorer.explore.discovery as discovery
 
 
 class Nomad(object):
+    """
+    A very basic class to fetch and provide access to a NOMADS-like National Water Model data repository
+    """
     def __init__(self, address: str = None, explorer: str = "remote"):
         if explorer not in discovery.EXPLORERS:
             message = "{} is not a valid explorer; only the following are supported: {}".format(
@@ -25,12 +28,9 @@ class Nomad(object):
 
         self.address = address
         self.explorer = explorer
-        self.directory = None
+        self.catalog = None
         self.loaded = False
 
     def explore(self):
-        self.directory = discovery.discover(explorer=self.explorer, url=self.address)
+        self.catalog = discovery.discover(explorer=self.explorer, url=self.address)
         self.loaded = True
-
-    def file_count(self) -> int:
-        pass

@@ -1,17 +1,28 @@
 #!/bin/env python
 """
-Put module documentation here
+Functions for retrieving National Water Model data through a remote network
 """
 
+import sys
 import os
-import string
+import typing
+import logging
 
 from datetime import datetime
 
 import requests
 from bs4 import BeautifulSoup
 
-import NOMADSExplorer.explore.catalog as directory
+import NOMADSExplorer.explore.catalog as catalog
+import NOMADSExplorer.common as common
+
+# Try to use lxml for html parsing; if it's not there, fall back to the standard
+try:
+    import lxml
+    HTML_PARSER = 'lxml'
+except ImportError:
+    logging.warn("lxml is not installed; falling back to the standard html parser for remote exploration")
+    HTML_PARSER = 'html.parser'
 
 
 _NOMADS_ADDRESS = os.environ.get(
@@ -22,95 +33,33 @@ _NOMADS_ADDRESS = os.environ.get(
 
 _DAY_FORMAT = "%Y%m%d"
 
-
-def get_int_from_word(word: str) -> [None, int]:
-    """
-    Attempt to pull a combined integer out of a word
-
-    :param word: The word to search through
-    :return: An integer if the word contains numbers, None otherwise
-    """
-    individual_numbers = [character for character in word if character in string.digits]
-
-    if len(individual_numbers) == 0:
-        return None
-
-    return int("".join(individual_numbers))
+LOADER_MODULE = sys.modules[__name__]
 
 
-def extract_file_attributes(filename: str) -> dict:
-    """
-    Discover NWM attributes by looking through the file name
-
-    Describes:
-    * reference: The hour of the day in zulu time for when the forecast begins
-    * configuration: The forecast configuration for the NWM, like 'short_range',
-    * model_type: What the model was forecasting, like 'channel_rt'
-    * member: The numerical identifier for the ensemble member IF the forecast was an ensemble
-    * step: The relative step of the forecast values into the overall forecast (1 hour in, 2 hours in, etc)
-    * area: Over where the forecast occured, like 'conus'
-
-    :param filename: The name of the file to search
-    :return: A dictionary containing values describing a NWM file's attributes
-    """
-    attributes = {
-        "reference": None,
-        "configuration": None,
-        "model_type": None,
-        "member": None,
-        "step": None,
-        "area": None
-    }
-
-    name_parts = filename.split(".")
-
-    # Get the reference at index 1
-    attributes["reference"] = int(name_parts[1][1:-1])
-
-    # Get the configuration at index 2
-    attributes["configuration"] = name_parts[2]
-
-    # Get the model type at index 3; if it ends in a digit, that digit needs to end up as the member and
-    # the member pattern needs to be filtered out
-    model_type_and_member = name_parts[3]
-    member = get_int_from_word(model_type_and_member)
-
-    if member is not None:
-        attributes["member"] = member
-        model_type_and_member = model_type_and_member.replace("_" + str(member), "")
-
-    attributes["model_type"] = model_type_and_member
-
-    # Get the time step at index 4
-    attributes["step"] = get_int_from_word(name_parts[4])
-
-    # Get the area at index 5
-    attributes["area"] = name_parts[5]
-
-    return attributes
-
-
-def form_configuration(address: str, link) -> directory.Configuration:
+def form_configuration(day: catalog.Day, address: str, link) -> catalog.Configuration:
     """
     Form a Configuration object based on a parsed link
 
+    :param day: The day of which this configuration coincides
     :param address: The address for the page that contained this link
     :param link: The discovered link
     :return: A configuration object that may contain individual forecasts
     """
-    member = get_int_from_word(link.text)
+    member = common.get_int_from_word(link.text)
     if member is None:
         configuration = link.text
     else:
         configuration = link.text.replace("_mem" + str(member), "")
 
-    return directory.Configuration(
+    return catalog.Configuration(
         configuration_type=configuration.strip("/"),
         address=os.path.join(address, link['href']),
+        loader_module=LOADER_MODULE,
+        day=day
     )
 
 
-def form_configuration_file(address: str, link) -> directory.File:
+def form_configuration_file(address: str, link) -> catalog.File:
     """
     Creates metadata for files that belong to a configuration
 
@@ -118,8 +67,8 @@ def form_configuration_file(address: str, link) -> directory.File:
     :param link: The parsed link to the file
     :return: An object containing the metadata for the discovered file
     """
-    attributes = extract_file_attributes(link.text)
-    configuration_file = directory.File(
+    attributes = common.extract_file_attributes(link.text)
+    configuration_file = catalog.File(
         name=link.text,
         address=os.path.join(address, link['href']),
         reference=attributes['reference'],
@@ -132,7 +81,13 @@ def form_configuration_file(address: str, link) -> directory.File:
     return configuration_file
 
 
-def get_directory(url: str = None, verbose: bool = False) -> directory.Catalog:
+def get_catalog(url: str = None) -> catalog.Catalog:
+    """
+    Create a catalog for the given url
+
+    :param url: The url to use. If not given, NOMADS will be used
+    :return: A catalog that will help explore National Water Model data at the given url
+    """
     if url is None:
         url = _NOMADS_ADDRESS
 
@@ -140,57 +95,72 @@ def get_directory(url: str = None, verbose: bool = False) -> directory.Catalog:
         if response.status_code >= 400:
             raise Exception("The web service hosting NWM data could not be reached. ({})".format(response.status_code))
 
-        if verbose:
-            print("Getting information about the latest forecasts")
+        logging.debug("Getting information about the latest forecasts or simulations for a new catalog")
 
-        web_listing = BeautifulSoup(response.text, features="html.parser")
+        web_listing = BeautifulSoup(response.text, features=HTML_PARSER)
 
-        if verbose:
-            print("Information about the latest forecasts were found")
+        logging.debug("Information about the latest forecasts were found for a new catalog")
 
-    directory_contents = directory.Catalog(url)
+    catalog_contents = catalog.Catalog(url, loader_module=LOADER_MODULE)
 
     for link in web_listing.find_all("a"):
         if link.text.startswith("nwm"):
             date = datetime.strptime(link.text[4:-1], _DAY_FORMAT)
-            directory_contents[date] = directory.Day(
+            catalog_contents[date] = catalog.Day(
                 date=date,
                 name=link.text.strip("/"),
-                address=os.path.join(url, link['href'])
+                address=os.path.join(url, link['href']),
+                loader_module=LOADER_MODULE
             )
 
-    if verbose:
-        print("{} forecast days were found".format(len(directory_contents)))
+    logging.debug("{} forecast days were found for a new catalog".format(len(catalog_contents)))
 
-    # Change this to be multiprocessed
-    for date, day in directory_contents.days.items():
-        with requests.get(day.address) as response:
-            web_listing = BeautifulSoup(response.text, features="html.parser")
+    return catalog_contents
 
-        # Multiprocess or overkill?
-        for configuration_entry in web_listing.find_all("a"):
-            if configuration_entry.text == 'Parent Directory':
-                continue
 
-            day[configuration_entry.text.strip("/")] = form_configuration(
+def fetch_configurations(day: catalog.Day) -> typing.List[catalog.Configuration]:
+    discovered_configurations: typing.List[catalog.Configuration] = list()
+
+    logging.debug("Getting configurations for {}".format(day))
+
+    with requests.get(day.address) as response:
+        web_listing = BeautifulSoup(response.text, features=HTML_PARSER)
+
+    for configuration_entry in web_listing.find_all("a"):
+        if configuration_entry.text == 'Parent Directory':
+            continue
+
+        discovered_configurations.append(
+            form_configuration(
+                day,
                 day.address,
                 configuration_entry
             )
+        )
 
-        for configuration_name, configuration in day.configurations.items():  # type: str, directory.Configuration
-            with requests.get(configuration.address) as response:
-                web_listing = BeautifulSoup(response.text, features="html.parser")
+    logging.debug("{} configurations found for {}".format(len(discovered_configurations), day))
 
-            for file_link in web_listing.find_all("a"):
-                if file_link.text.endswith(".nc"):
-                    configuration[file_link.text] = form_configuration_file(
-                        configuration.address,
-                        file_link
-                    )
+    return discovered_configurations
 
-    return directory_contents
+
+def fetch_files(configuration: catalog.Configuration) -> typing.List[catalog.File]:
+    discovered_files: typing.List[catalog.File] = list()
+
+    with requests.get(configuration.address) as response:
+        web_listing = BeautifulSoup(response.text, features=HTML_PARSER)
+
+    for file_link in web_listing.find_all("a"):
+        if file_link.text.endswith(".nc"):
+            discovered_files.append(
+                form_configuration_file(
+                    configuration.address,
+                    file_link
+                )
+            )
+
+    return discovered_files
 
 
 if __name__ == "__main__":
-    directory = get_directory()
-    print(directory)
+    generated_catalog = get_catalog()
+    print(generated_catalog)
