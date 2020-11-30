@@ -23,6 +23,7 @@ setup(
         'six>=1.15.0',
         'urllib3>=1.25.10',
         'xarray>=0.16.0',
-        'beautifulsoup4>=4.9.1'
+        'beautifulsoup4>=4.9.1',
+        'lxml>=4.6.2'
     ]
 )
